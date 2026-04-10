@@ -92,19 +92,19 @@ export default function SWFCanvas({ displayList, selected, onSelect }: Props) {
 
     const colours = ELEMENT_COLOURS[item.element_type] ?? ELEMENT_COLOURS.unknown
 
-    // Fill — use actual shape fill colour if available, else type-based
-    if (item.fill_colour && !item.is_container) {
-      ctx.fillStyle = hexToRgba(item.fill_colour, isSelected ? 0.85 : 0.7)
-    } else if (isSelected) {
-      ctx.fillStyle = 'rgba(224,98,54,0.18)'
-    } else {
-      ctx.fillStyle = colours.fill
-    }
+    // Fill — always very faint so overlapping elements stay readable
+    ctx.fillStyle = isSelected
+      ? 'rgba(224,98,54,0.15)'
+      : (item.fill_colour ? hexToRgba(item.fill_colour, 0.12) : colours.fill)
     ctx.fillRect(x, y, w, h)
 
-    // Border — dashed for containers (sprites with children), solid otherwise
-    ctx.strokeStyle = isSelected ? SELECTED_COLOUR : colours.stroke
-    ctx.lineWidth = isSelected ? 1.5 : 1
+    // Stroke — use actual fill colour for shapes (shows real colour as outline),
+    // or type colour for other elements. Brighter when selected.
+    const strokeColour = item.fill_colour && !item.is_container
+      ? hexToRgba(item.fill_colour, isSelected ? 1 : 0.75)
+      : (isSelected ? SELECTED_COLOUR : colours.stroke)
+    ctx.strokeStyle = strokeColour
+    ctx.lineWidth = isSelected ? 2 : 1
     if (item.is_container) {
       ctx.setLineDash([4, 3])
       ctx.globalAlpha = 0.4
