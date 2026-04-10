@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { SWFDocument } from '../lib/swfTypes'
+import { useState, useCallback } from 'react'
+import type { SWFDocument, DisplayItem, DisplayList } from '../lib/swfTypes'
+import { loadWasm } from '../hooks/useWasm'
 import SWFCanvas from './SWFCanvas'
 import ElementTree from './ElementTree'
 import PropertiesPanel from './PropertiesPanel'
@@ -10,10 +11,45 @@ type Props = {
 }
 
 const mono = { fontFamily: "'JetBrains Mono', monospace" }
-const heading = { fontFamily: "'Barlow Semi Condensed', system-ui, sans-serif" }
 
 export default function EditorView({ doc, onReset }: Props) {
   const [selected, setSelected] = useState<number | null>(null)
+
+  // movieJson accumulates edits; displayList re-derived from it after each edit
+  const [movieJson, setMovieJson] = useState(doc.movieJson)
+  const [displayList, setDisplayList] = useState<DisplayList>(doc.displayList)
+
+  const handleEdit = useCallback(async (
+    item: DisplayItem,
+    field: 'x' | 'y' | 'text',
+    value: string | number,
+  ) => {
+    try {
+      const wasm = await loadWasm()
+      let newMovieJson: string
+
+      if (field === 'x' || field === 'y') {
+        const newX = field === 'x' ? Number(value) : item.x
+        const newY = field === 'y' ? Number(value) : item.y
+        newMovieJson = wasm.set_element_position(
+          movieJson,
+          JSON.stringify(item.path),
+          newX,
+          newY,
+        )
+      } else {
+        newMovieJson = wasm.set_element_text(movieJson, item.character_id, String(value))
+      }
+
+      const newDisplayList: DisplayList = JSON.parse(wasm.get_display_list(newMovieJson))
+      setMovieJson(newMovieJson)
+      setDisplayList(newDisplayList)
+    } catch (err) {
+      console.error('[StarForge] Edit failed:', err)
+    }
+  }, [movieJson])
+
+  const isDirty = movieJson !== doc.movieJson
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -32,70 +68,84 @@ export default function EditorView({ doc, onReset }: Props) {
           {doc.filename}
         </span>
 
+        {isDirty && (
+          <span className="text-sf-orange text-xs tracking-widest uppercase" style={mono}>
+            Unsaved edits
+          </span>
+        )}
+
         <span className="ml-auto text-sf-ink/25 text-xs flex-shrink-0" style={mono}>
-          {doc.displayList.width.toFixed(0)} &times; {doc.displayList.height.toFixed(0)} px
+          {displayList.width.toFixed(0)} &times; {displayList.height.toFixed(0)} px
           &nbsp;/&nbsp;
-          {doc.displayList.items.length} elements
+          {displayList.items.length} elements
         </span>
       </div>
 
       {/* Three-panel editor */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Left: Element tree */}
         <div className="w-56 flex-shrink-0 overflow-hidden">
           <ElementTree
-            displayList={doc.displayList}
+            displayList={displayList}
             selected={selected}
             onSelect={setSelected}
           />
         </div>
 
-        {/* Centre: Canvas */}
         <div className="flex-1 overflow-hidden">
           <SWFCanvas
-            displayList={doc.displayList}
+            displayList={displayList}
             selected={selected}
             onSelect={setSelected}
           />
         </div>
 
-        {/* Right: Properties */}
-        <div className="w-52 flex-shrink-0 overflow-hidden">
+        <div className="w-56 flex-shrink-0 overflow-hidden">
           <PropertiesPanel
-            displayList={doc.displayList}
+            displayList={displayList}
             selected={selected}
+            onEdit={handleEdit}
           />
         </div>
 
       </div>
 
       {/* Download bar */}
-      <div className="flex-shrink-0 border-t border-sf-blue/10 bg-white px-6 py-2 flex items-center gap-4">
-        <span className="text-sf-ink/30 text-xs" style={heading}>
-          Editing is coming in the next phase. Download the original round-trip file to verify the parser.
-        </span>
-        <DownloadButton doc={doc} />
+      <div className="flex-shrink-0 border-t border-sf-blue/10 bg-white px-6 py-2 flex items-center gap-3">
+        {isDirty ? (
+          <p className="text-sf-ink/40 text-xs" style={mono}>
+            Changes are applied in memory. Download to save the file.
+          </p>
+        ) : (
+          <p className="text-sf-ink/25 text-xs" style={mono}>
+            Select an element and edit its position or text content in the properties panel.
+          </p>
+        )}
+        <DownloadButton movieJson={movieJson} wasGfx={doc.wasGfx} filename={doc.filename} isDirty={isDirty} />
       </div>
 
     </div>
   )
 }
 
-function DownloadButton({ doc }: { doc: SWFDocument }) {
+function DownloadButton({ movieJson, wasGfx, filename, isDirty }: {
+  movieJson: string
+  wasGfx: boolean
+  filename: string
+  isDirty: boolean
+}) {
   const [busy, setBusy] = useState(false)
 
   async function download() {
     setBusy(true)
     try {
-      const { loadWasm } = await import('../hooks/useWasm')
       const wasm = await loadWasm()
-      const outBytes = wasm.emit_gfx(doc.movieJson, doc.wasGfx)
+      const outBytes = wasm.emit_gfx(movieJson, wasGfx)
       const blob = new Blob([outBytes.slice(0)], { type: 'application/octet-stream' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = doc.filename.replace(/(\.\w+)$/, '_edited$1')
+      a.download = filename.replace(/(\.\w+)$/, '_edited$1')
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -109,7 +159,12 @@ function DownloadButton({ doc }: { doc: SWFDocument }) {
     <button
       onClick={download}
       disabled={busy}
-      className="ml-auto flex-shrink-0 text-xs tracking-widest uppercase border border-sf-blue/25 hover:border-sf-blue text-sf-blue/50 hover:text-sf-blue px-4 py-1.5 transition-all duration-150 disabled:opacity-40"
+      className={[
+        'ml-auto flex-shrink-0 text-xs tracking-widest uppercase px-4 py-1.5 transition-all duration-150 disabled:opacity-40',
+        isDirty
+          ? 'border border-sf-orange/60 hover:border-sf-orange text-sf-orange/70 hover:text-sf-orange'
+          : 'border border-sf-blue/25 hover:border-sf-blue text-sf-blue/50 hover:text-sf-blue',
+      ].join(' ')}
       style={{ fontFamily: "'JetBrains Mono', monospace" }}
     >
       {busy ? 'Exporting...' : 'Download file'}

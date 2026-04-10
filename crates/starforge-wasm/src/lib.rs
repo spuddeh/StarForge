@@ -96,6 +96,8 @@ struct DisplayItem {
     text_colour: Option<String>,
     /// True if this is a sprite with children expanded below it in the list
     is_container: bool,
+    /// Path of depths to reach this PlaceObject, e.g. [5] or [2, 5]
+    path: Vec<u16>,
 }
 
 #[derive(Serialize)]
@@ -203,6 +205,7 @@ fn collect_items(
     parent_sy: f64,
     uid: &mut u32,
     recurse_depth: u32,
+    parent_path: &[u16],
     items: &mut Vec<DisplayItem>,
 ) {
     for tag in display_tags {
@@ -254,6 +257,9 @@ fn collect_items(
         let sprite_tags = info.and_then(|i| i.sprite_tags.as_deref());
         let has_children = sprite_tags.is_some() && recurse_depth < 5;
 
+        let mut item_path = parent_path.to_vec();
+        item_path.push(depth);
+
         let current_uid = *uid;
         *uid += 1;
 
@@ -269,6 +275,7 @@ fn collect_items(
             text,
             text_colour,
             is_container: has_children,
+            path: item_path.clone(),
         });
 
         // Recurse into sprite's own display list
@@ -278,6 +285,7 @@ fn collect_items(
                 world_tx, world_ty,
                 world_sx, world_sy,
                 uid, recurse_depth + 1,
+                &item_path,
                 items,
             );
         }
@@ -326,8 +334,95 @@ pub fn get_display_list(movie_json: &str) -> Result<String, JsValue> {
 
     let mut items = Vec::new();
     let mut uid = 0u32;
-    collect_items(tags, &char_map, 0.0, 0.0, 1.0, 1.0, &mut uid, 0, &mut items);
+    collect_items(tags, &char_map, 0.0, 0.0, 1.0, 1.0, &mut uid, 0, &[], &mut items);
 
     serde_json::to_string(&Stage { width: stage_w, height: stage_h, items })
         .map_err(|e| JsValue::from_str(&format!("Failed to serialise display list: {e}")))
+}
+
+// ── Editing functions ─────────────────────────────────────────────────────────
+
+/// Navigate to a PlaceObject following `path` (list of depths) through the tag tree.
+/// Modifies translate_x/translate_y in-place. Returns true if found.
+fn apply_position(tags: &mut serde_json::Value, path: &[u16], x_twips: i64, y_twips: i64) -> bool {
+    if path.is_empty() { return false; }
+    let target = path[0];
+
+    let arr = match tags.as_array_mut() { Some(a) => a, None => return false };
+
+    if path.len() == 1 {
+        for tag in arr.iter_mut() {
+            if tag["type"].as_str() == Some("PlaceObject")
+               && tag["depth"].as_u64() == Some(target as u64)
+            {
+                tag["matrix"]["translate_x"] = serde_json::json!(x_twips);
+                tag["matrix"]["translate_y"] = serde_json::json!(y_twips);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Find which sprite to descend into
+    let char_id = arr.iter()
+        .find(|t| t["type"].as_str() == Some("PlaceObject") && t["depth"].as_u64() == Some(target as u64))
+        .and_then(|t| t["character_id"].as_u64());
+
+    let char_id = match char_id { Some(id) => id, None => return false };
+
+    for tag in arr.iter_mut() {
+        if tag["type"].as_str() == Some("DefineSprite") && tag["id"].as_u64() == Some(char_id) {
+            return apply_position(&mut tag["tags"], &path[1..], x_twips, y_twips);
+        }
+    }
+    false
+}
+
+/// Update the position of a PlaceObject identified by its depth path.
+/// path_json: JSON array of depths e.g. "[5]" or "[2, 5]".
+/// x, y: new absolute position in pixels.
+#[wasm_bindgen]
+pub fn set_element_position(movie_json: &str, path_json: &str, x: f64, y: f64) -> Result<String, JsValue> {
+    let mut movie: serde_json::Value = serde_json::from_str(movie_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse Movie JSON: {e}")))?;
+
+    let path: Vec<u16> = serde_json::from_str(path_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse path: {e}")))?;
+
+    let x_twips = (x * 20.0).round() as i64;
+    let y_twips = (y * 20.0).round() as i64;
+
+    apply_position(&mut movie["tags"], &path, x_twips, y_twips);
+
+    serde_json::to_string(&movie)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialise Movie JSON: {e}")))
+}
+
+/// Update the text content of a DefineDynamicText by character ID.
+/// Searches the full tag tree (including nested sprites).
+#[wasm_bindgen]
+pub fn set_element_text(movie_json: &str, character_id: u16, text: &str) -> Result<String, JsValue> {
+    let mut movie: serde_json::Value = serde_json::from_str(movie_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse Movie JSON: {e}")))?;
+
+    fn update_text(tags: &mut serde_json::Value, char_id: u16, text: &str) {
+        if let Some(arr) = tags.as_array_mut() {
+            for tag in arr.iter_mut() {
+                if tag["type"].as_str() == Some("DefineDynamicText")
+                   && tag["id"].as_u64() == Some(char_id as u64)
+                {
+                    tag["text"] = serde_json::json!(text);
+                    return;
+                }
+                if tag["type"].as_str() == Some("DefineSprite") {
+                    update_text(&mut tag["tags"], char_id, text);
+                }
+            }
+        }
+    }
+
+    update_text(&mut movie["tags"], character_id, text);
+
+    serde_json::to_string(&movie)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialise Movie JSON: {e}")))
 }

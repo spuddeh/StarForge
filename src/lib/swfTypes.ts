@@ -15,6 +15,7 @@ export type DisplayItem = {
   text?: string           // text content for dynamic text fields
   text_colour?: string    // "#rrggbbaa" hex — text colour
   is_container: boolean   // true for sprites with children expanded below
+  path: number[]          // depth path to reach this element e.g. [5] or [2, 5]
 }
 
 export type DisplayList = {
