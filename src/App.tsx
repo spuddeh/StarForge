@@ -4,6 +4,7 @@ import FileLoader from './components/FileLoader'
 const mono = { fontFamily: "'JetBrains Mono', monospace" }
 const heading = { fontFamily: "'Barlow Semi Condensed', system-ui, sans-serif" }
 const body = { fontFamily: "'Crimson Pro', Georgia, serif" }
+const base = import.meta.env.BASE_URL
 
 export default function App() {
   return (
@@ -18,7 +19,7 @@ export default function App() {
 
           <div className="flex items-center gap-3 mb-6">
             <img
-              src="/constellation-logo.png"
+              src={`${base}constellation-logo.png`}
               alt="Constellation"
               className="w-7 h-7 rounded-full"
             />

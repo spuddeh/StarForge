@@ -14,6 +14,7 @@ type ParseResult = {
 const mono = { fontFamily: "'JetBrains Mono', monospace" }
 const heading = { fontFamily: "'Barlow Semi Condensed', system-ui, sans-serif" }
 const body = { fontFamily: "'Crimson Pro', Georgia, serif" }
+const base = import.meta.env.BASE_URL
 
 export default function FileLoader() {
   const [state, setState] = useState<LoadState>('idle')
@@ -107,7 +108,7 @@ export default function FileLoader() {
         <input type="file" accept=".gfx,.swf,.ba2" className="sr-only" onChange={onInputChange} />
 
         <img
-          src="/constellation-logo.png"
+          src={`${base}constellation-logo.png`}
           alt=""
           className={`w-14 h-14 rounded-full transition-opacity duration-200 ${isDragging ? 'opacity-100' : 'opacity-50'}`}
         />
