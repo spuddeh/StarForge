@@ -51,9 +51,16 @@ export default function App() {
       {doc ? (
         <EditorView doc={doc} onReset={() => setDoc(null)} />
       ) : (
-        <main className="flex-1 flex flex-col items-center justify-center px-8 py-12 overflow-auto">
+        <main
+          className="flex-1 flex flex-col items-center justify-center px-8 py-12 overflow-auto"
+          style={{
+            backgroundColor: '#0d1a28',
+            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.18) 1px, transparent 1px)',
+            backgroundSize: '32px 32px',
+          }}
+        >
           <div className="w-full max-w-lg">
-            <p className="text-sf-ink/50 text-lg leading-relaxed mb-8 max-w-md" style={body}>
+            <p className="text-sf-white/50 text-lg leading-relaxed mb-8 max-w-md" style={body}>
               Open a GFx file, edit it visually, download the result.
               Runs entirely in your browser.
             </p>
