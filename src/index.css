@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --color-sf-red:     #c82337;
+  --color-sf-orange:  #e06236;
+  --color-sf-yellow:  #d7ab61;
+  --color-sf-blue:    #2f4c79;
+  --color-sf-white:   #f5f7f7;
+  --color-sf-bg:      #f9f7f4;
+  --color-sf-surface: #ffffff;
+  --color-sf-muted:   #6b7280;
+  --color-sf-ink:     #1a2535;
+
+  --font-heading: 'Barlow Semi Condensed', system-ui, sans-serif;
+  --font-body:    'Crimson Pro', Georgia, serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: #f9f7f4;
+  color: #1a2535;
+  font-family: 'Barlow Semi Condensed', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Four stacked horizontal stripes — matches bethesda.net exactly */
+.constellation-stripe {
+  width: 100%;
+  height: 32px;
+  flex-shrink: 0;
+  background-image: linear-gradient(
+    rgb(200, 35, 55)  0%,
+    rgb(200, 35, 55)  25%,
+    rgb(224, 98, 54)  25%,
+    rgb(224, 98, 54)  50%,
+    rgb(215, 171, 97) 50%,
+    rgb(215, 171, 97) 75%,
+    rgb(47, 76, 121)  75%,
+    rgb(47, 76, 121)  100%
+  );
+}
+
+/* Canvas grid for drop zone */
+.canvas-grid {
+  background-image:
+    linear-gradient(rgba(47, 76, 121, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 76, 121, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Targeting corners */
+.bracket-corners { position: relative; }
+.bracket-corners::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 14px; height: 14px;
+  border-top: 1px solid rgba(47, 76, 121, 0.4);
+  border-left: 1px solid rgba(47, 76, 121, 0.4);
+  pointer-events: none;
+}
+.bracket-corners::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 14px; height: 14px;
+  border-bottom: 1px solid rgba(47, 76, 121, 0.4);
+  border-right: 1px solid rgba(47, 76, 121, 0.4);
+  pointer-events: none;
+}
+
+/* Thin tick-mark rule */
+.tick-rule {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(47, 76, 121, 0.3) 15%,
+    rgba(47, 76, 121, 0.3) 85%,
+    transparent 100%
+  );
+}

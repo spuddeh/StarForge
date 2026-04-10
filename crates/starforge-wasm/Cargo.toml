@@ -1,0 +1,20 @@
+[package]
+name = "starforge-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+swf-parser = "0.14.0"
+swf-emitter = "0.14.0"
+swf-types = "0.14.0"
+
+[profile.release]
+opt-level = "z"
+lto = true
