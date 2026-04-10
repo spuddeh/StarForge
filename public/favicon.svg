@@ -1,16 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Constellation badge — circle with four-colour swoops and central star -->
-  <circle cx="16" cy="16" r="15" fill="#1a2a42"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
 
-  <!-- Four swooping ribbons -->
-  <path d="M16 16 Q6 8 4 16 Q6 24 16 28 Q10 22 16 16Z" fill="#2f4c79" opacity="0.9"/>
-  <path d="M16 16 Q8 4 16 4 Q22 4 28 10 Q22 8 16 16Z" fill="#d7ab61" opacity="0.9"/>
-  <path d="M16 16 Q26 8 28 16 Q26 22 20 28 Q22 20 16 16Z" fill="#e06236" opacity="0.9"/>
-  <path d="M16 16 Q24 26 16 28 Q10 28 4 22 Q10 24 16 16Z" fill="#c82337" opacity="0.9"/>
+  <!-- Outer circle — light blue, matching the Constellation badge -->
+  <circle cx="100" cy="100" r="99" fill="#b8ccd8"/>
 
-  <!-- Central 4-pointed star -->
-  <path d="M16 11 L17 15 L21 16 L17 17 L16 21 L15 17 L11 16 L15 15Z" fill="white"/>
+  <!-- Inner dark navy circle -->
+  <circle cx="100" cy="100" r="90" fill="#1c2d45"/>
 
-  <!-- Circle border -->
-  <circle cx="16" cy="16" r="15" fill="none" stroke="rgba(215,171,97,0.4)" stroke-width="0.5"/>
+  <!-- Four swooping ribbons — Constellation palette colours -->
+
+  <!-- Gold — lower left sweep -->
+  <path d="M100,100 Q70,75 28,155 Q42,170 58,162 Q75,130 100,100Z" fill="#d7ab61"/>
+
+  <!-- Red — upper left sweep (largest) -->
+  <path d="M100,100 Q75,80 18,42 Q22,26 38,28 Q68,60 100,100Z" fill="#c82337"/>
+
+  <!-- Orange — upper right sweep -->
+  <path d="M100,100 Q120,75 178,30 Q190,42 184,58 Q148,72 100,100Z" fill="#e06236"/>
+
+  <!-- Blue — lower right -->
+  <path d="M100,100 Q125,118 162,172 Q148,183 134,176 Q112,142 100,100Z" fill="#2f4c79"/>
+
+  <!-- White hammer — angled 35deg, centred -->
+  <g transform="translate(100,100) rotate(-35)">
+    <!-- Hammer head -->
+    <rect x="-38" y="-22" width="52" height="22" rx="4" fill="white"/>
+    <!-- Claw notch cut into head -->
+    <rect x="10" y="-22" width="4" height="10" rx="1" fill="#1c2d45"/>
+    <!-- Handle -->
+    <rect x="-8" y="0" width="12" height="46" rx="4" fill="white"/>
+  </g>
+
+  <!-- Outer ring -->
+  <circle cx="100" cy="100" r="99" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+
 </svg>
