@@ -4,7 +4,7 @@ import { ELEMENT_COLOURS } from '../lib/swfTypes'
 type Props = {
   displayList: DisplayList
   selected: number | null
-  onSelect: (depth: number | null) => void
+  onSelect: (uid: number | null) => void
 }
 
 const mono = { fontFamily: "'JetBrains Mono', monospace" }
@@ -49,9 +49,9 @@ export default function ElementTree({ displayList, selected, onSelect }: Props) 
       <div className="flex-1 overflow-y-auto">
         {displayList.items.map(item => (
           <ElementRow
-            key={item.depth}
+            key={item.uid}
             item={item}
-            isSelected={item.depth === selected}
+            isSelected={item.uid === selected}
             onSelect={onSelect}
           />
         ))}
@@ -67,20 +67,23 @@ function ElementRow({
 }: {
   item: DisplayItem
   isSelected: boolean
-  onSelect: (depth: number | null) => void
+  onSelect: (uid: number | null) => void
 }) {
   const colours = ELEMENT_COLOURS[item.element_type] ?? ELEMENT_COLOURS.unknown
   const label = item.name ?? `char_${item.character_id}`
 
+  const indent = item.level * 12
+
   return (
     <button
-      onClick={() => onSelect(isSelected ? null : item.depth)}
+      onClick={() => onSelect(isSelected ? null : item.uid)}
       className={[
-        'w-full text-left px-4 py-2 flex items-center gap-2 transition-colors duration-100',
+        'w-full text-left py-1.5 flex items-center gap-2 transition-colors duration-100',
         isSelected
           ? 'bg-sf-orange/8 border-l-2 border-sf-orange'
           : 'border-l-2 border-transparent hover:bg-sf-blue/5',
       ].join(' ')}
+      style={{ paddingLeft: `${16 + indent}px`, paddingRight: '12px' }}
     >
       {/* Type badge */}
       <span

@@ -20,7 +20,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export default function PropertiesPanel({ displayList, selected }: Props) {
   const item: DisplayItem | undefined = selected != null
-    ? displayList.items.find(i => i.depth === selected)
+    ? displayList.items.find(i => i.uid === selected)
     : undefined
 
   const colours = item ? (ELEMENT_COLOURS[item.element_type] ?? ELEMENT_COLOURS.unknown) : null

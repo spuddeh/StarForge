@@ -10,28 +10,16 @@ pub fn init_panic_hook() {
 // ── GFx / SWF magic byte handling ────────────────────────────────────────────
 
 fn gfx_to_swf_bytes(bytes: &[u8]) -> (Vec<u8>, bool) {
-    if bytes.len() < 3 {
-        return (bytes.to_vec(), false);
-    }
+    if bytes.len() < 3 { return (bytes.to_vec(), false); }
     match &bytes[0..3] {
-        b"GFX" => {
-            let mut out = bytes.to_vec();
-            out[0..3].copy_from_slice(b"FWS");
-            (out, true)
-        }
-        b"CFX" => {
-            let mut out = bytes.to_vec();
-            out[0..3].copy_from_slice(b"CWS");
-            (out, true)
-        }
+        b"GFX" => { let mut o = bytes.to_vec(); o[0..3].copy_from_slice(b"FWS"); (o, true) }
+        b"CFX" => { let mut o = bytes.to_vec(); o[0..3].copy_from_slice(b"CWS"); (o, true) }
         _ => (bytes.to_vec(), false),
     }
 }
 
 fn swf_to_gfx_bytes(bytes: Vec<u8>, was_gfx: bool) -> Vec<u8> {
-    if !was_gfx || bytes.len() < 3 {
-        return bytes;
-    }
+    if !was_gfx || bytes.len() < 3 { return bytes; }
     let mut out = bytes;
     match &out[0..3] {
         b"FWS" => { out[0..3].copy_from_slice(b"GFX"); }
@@ -41,16 +29,14 @@ fn swf_to_gfx_bytes(bytes: Vec<u8>, was_gfx: bool) -> Vec<u8> {
     out
 }
 
-// ── ImportAssets / DefineDynamicText workarounds ──────────────────────────────
+// ── swf-emitter 0.14.0 workarounds ───────────────────────────────────────────
 
 fn encode_swf_tag_record(tag_code: u16, body: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     if body.len() < 63 {
-        let header = (tag_code << 6) | body.len() as u16;
-        out.extend_from_slice(&header.to_le_bytes());
+        out.extend_from_slice(&((tag_code << 6) | body.len() as u16).to_le_bytes());
     } else {
-        let header = (tag_code << 6) | 63u16;
-        out.extend_from_slice(&header.to_le_bytes());
+        out.extend_from_slice(&((tag_code << 6) | 63u16).to_le_bytes());
         out.extend_from_slice(&(body.len() as i32).to_le_bytes());
     }
     out.extend_from_slice(body);
@@ -58,16 +44,13 @@ fn encode_swf_tag_record(tag_code: u16, body: &[u8]) -> Vec<u8> {
 }
 
 fn serialise_import_assets(tag: &swf_types::tags::ImportAssets) -> Vec<u8> {
-    let mut body: Vec<u8> = Vec::new();
-    body.extend_from_slice(tag.url.as_bytes());
-    body.push(0u8);
-    body.push(1u8);
-    body.push(0u8);
+    let mut body = Vec::new();
+    body.extend_from_slice(tag.url.as_bytes()); body.push(0);
+    body.push(1); body.push(0);
     body.extend_from_slice(&(tag.assets.len() as u16).to_le_bytes());
     for asset in &tag.assets {
         body.extend_from_slice(&asset.id.to_le_bytes());
-        body.extend_from_slice(asset.name.as_bytes());
-        body.push(0u8);
+        body.extend_from_slice(asset.name.as_bytes()); body.push(0);
     }
     encode_swf_tag_record(71, &body)
 }
@@ -91,7 +74,9 @@ fn patch_tags(tags: &mut Vec<swf_types::Tag>) {
 
 #[derive(Serialize)]
 struct DisplayItem {
+    uid: u32,
     depth: u16,
+    level: u32,       // nesting depth (0 = root timeline)
     character_id: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
@@ -100,6 +85,17 @@ struct DisplayItem {
     y: f64,
     width: f64,
     height: f64,
+    /// CSS hex colour string for shape fills e.g. "#ff0000ff"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill_colour: Option<String>,
+    /// Text content for dynamic text fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    /// CSS hex colour string for text e.g. "#ffffffff"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text_colour: Option<String>,
+    /// True if this is a sprite with children expanded below it in the list
+    is_container: bool,
 }
 
 #[derive(Serialize)]
@@ -109,15 +105,186 @@ struct Stage {
     items: Vec<DisplayItem>,
 }
 
-/// Extract x_min/y_min/x_max/y_max from a serde_json::Value Rect
-fn rect_twips(v: &serde_json::Value) -> Option<(i64, i64, i64, i64)> {
-    Some((
-        v["x_min"].as_i64()?,
-        v["y_min"].as_i64()?,
-        v["x_max"].as_i64()?,
-        v["y_max"].as_i64()?,
-    ))
+/// Information extracted from a character-defining tag
+struct CharInfo {
+    bounds: Option<(i64, i64, i64, i64)>,
+    element_type: &'static str,
+    fill_colour: Option<[u8; 4]>,
+    text: Option<String>,
+    text_colour: Option<[u8; 4]>,
+    sprite_tags: Option<Vec<serde_json::Value>>,
 }
+
+fn rect_twips(v: &serde_json::Value) -> Option<(i64, i64, i64, i64)> {
+    Some((v["x_min"].as_i64()?, v["y_min"].as_i64()?, v["x_max"].as_i64()?, v["y_max"].as_i64()?))
+}
+
+fn extract_colour(v: &serde_json::Value) -> Option<[u8; 4]> {
+    Some([
+        v["r"].as_u64()? as u8,
+        v["g"].as_u64()? as u8,
+        v["b"].as_u64()? as u8,
+        v["a"].as_u64().unwrap_or(255) as u8,
+    ])
+}
+
+fn colour_to_hex(c: [u8; 4]) -> String {
+    format!("#{:02x}{:02x}{:02x}{:02x}", c[0], c[1], c[2], c[3])
+}
+
+/// Extract the first solid fill colour from a DefineShape tag
+fn extract_fill_colour(tag: &serde_json::Value) -> Option<[u8; 4]> {
+    let fills = tag["shape"]["initial_styles"]["fill"].as_array()?;
+    for fill in fills {
+        // Try adjacently-tagged serde enum: {"type":"Solid","Solid":{"color":{...}}}
+        if let Some(c) = extract_colour(&fill["Solid"]["color"]) {
+            return Some(c);
+        }
+        // Try internally-tagged serde enum (fields inlined): {"type":"Solid","color":{...}}
+        if let Some(c) = extract_colour(&fill["color"]) {
+            return Some(c);
+        }
+    }
+    None
+}
+
+fn build_char_map(tags: &[serde_json::Value]) -> HashMap<u64, CharInfo> {
+    let mut map = HashMap::new();
+    for tag in tags {
+        let id = match tag["id"].as_u64() { Some(id) => id, None => continue };
+        let info = match tag["type"].as_str().unwrap_or("") {
+            "DefineShape" => CharInfo {
+                bounds: rect_twips(&tag["bounds"]),
+                element_type: "shape",
+                fill_colour: extract_fill_colour(tag),
+                text: None,
+                text_colour: None,
+                sprite_tags: None,
+            },
+            "DefineDynamicText" => CharInfo {
+                bounds: rect_twips(&tag["bounds"]),
+                element_type: "text",
+                fill_colour: None,
+                text: tag["text"].as_str().map(String::from),
+                text_colour: extract_colour(&tag["color"]),
+                sprite_tags: None,
+            },
+            "DefineSprite" => CharInfo {
+                bounds: None,
+                element_type: "sprite",
+                fill_colour: None,
+                text: None,
+                text_colour: None,
+                sprite_tags: tag["tags"].as_array().map(|v| v.to_vec()),
+            },
+            "DefineButton" | "DefineButton2" => CharInfo {
+                bounds: None,
+                element_type: "button",
+                fill_colour: None,
+                text: None,
+                text_colour: None,
+                sprite_tags: None,
+            },
+            _ => continue,
+        };
+        map.insert(id, info);
+    }
+    map
+}
+
+/// Recursively collect display items, composing parent transforms.
+/// Max recursion depth of 5 to prevent runaway on deeply nested files.
+fn collect_items(
+    display_tags: &[serde_json::Value],
+    char_map: &HashMap<u64, CharInfo>,
+    parent_tx: f64,
+    parent_ty: f64,
+    parent_sx: f64,
+    parent_sy: f64,
+    uid: &mut u32,
+    recurse_depth: u32,
+    items: &mut Vec<DisplayItem>,
+) {
+    for tag in display_tags {
+        match tag["type"].as_str().unwrap_or("") {
+            "ShowFrame" => break,
+            "PlaceObject" => {}
+            _ => continue,
+        }
+        // Skip updates (they reposition existing characters, not place new ones)
+        if tag["is_update"].as_bool().unwrap_or(false) { continue; }
+
+        let char_id = match tag["character_id"].as_u64() { Some(id) => id, None => continue };
+        let depth = tag["depth"].as_u64().unwrap_or(0) as u16;
+        let name = tag["name"].as_str().map(String::from);
+
+        // Local matrix: translate in twips, scale as Sfixed16P16 (65536 = 1.0)
+        let mat = &tag["matrix"];
+        let local_tx = mat["translate_x"].as_i64().unwrap_or(0) as f64;
+        let local_ty = mat["translate_y"].as_i64().unwrap_or(0) as f64;
+        let local_sx = mat["scale_x"].as_i64().map(|v| v as f64 / 65536.0).unwrap_or(1.0);
+        let local_sy = mat["scale_y"].as_i64().map(|v| v as f64 / 65536.0).unwrap_or(1.0);
+
+        // Compose with parent transform
+        let world_tx = parent_tx + parent_sx * local_tx;
+        let world_ty = parent_ty + parent_sy * local_ty;
+        let world_sx = parent_sx * local_sx;
+        let world_sy = parent_sy * local_sy;
+
+        let info = char_map.get(&char_id);
+        let element_type = info.map(|i| i.element_type).unwrap_or("unknown");
+
+        let (x, y, w, h) = match info.and_then(|i| i.bounds) {
+            Some((x_min, y_min, x_max, y_max)) => {
+                let x = (world_tx + x_min as f64 * world_sx) / 20.0;
+                let y = (world_ty + y_min as f64 * world_sy) / 20.0;
+                let w = ((x_max - x_min) as f64 * world_sx / 20.0).abs();
+                let h = ((y_max - y_min) as f64 * world_sy / 20.0).abs();
+                (x, y, w, h)
+            }
+            None => (world_tx / 20.0, world_ty / 20.0, 64.0, 32.0),
+        };
+
+        let fill_colour = info.and_then(|i| i.fill_colour).map(colour_to_hex);
+        let text = info.and_then(|i| i.text.clone());
+        let text_colour = info
+            .and_then(|i| i.text_colour)
+            .map(|c| colour_to_hex([c[0], c[1], c[2], 255]));
+
+        let sprite_tags = info.and_then(|i| i.sprite_tags.as_deref());
+        let has_children = sprite_tags.is_some() && recurse_depth < 5;
+
+        let current_uid = *uid;
+        *uid += 1;
+
+        items.push(DisplayItem {
+            uid: current_uid,
+            depth,
+            level: recurse_depth,
+            character_id: char_id as u16,
+            name,
+            element_type: element_type.to_string(),
+            x, y, width: w, height: h,
+            fill_colour,
+            text,
+            text_colour,
+            is_container: has_children,
+        });
+
+        // Recurse into sprite's own display list
+        if let (Some(tags), true) = (sprite_tags, has_children) {
+            collect_items(
+                tags, char_map,
+                world_tx, world_ty,
+                world_sx, world_sy,
+                uid, recurse_depth + 1,
+                items,
+            );
+        }
+    }
+}
+
+// ── Public WASM API ───────────────────────────────────────────────────────────
 
 /// Parse a GFx/SWF file from raw bytes. Returns the Movie as a JSON string.
 #[wasm_bindgen]
@@ -140,10 +307,8 @@ pub fn emit_gfx(movie_json: &str, was_gfx: bool) -> Result<Vec<u8>, JsValue> {
     Ok(swf_to_gfx_bytes(swf_bytes, was_gfx))
 }
 
-/// Build a display list from a Movie JSON string.
-///
-/// Returns JSON: { width, height, items: [{ depth, character_id, name?, element_type, x, y, width, height }] }
-/// All coordinates are in pixels (twips / 20). Only processes frame 0.
+/// Build a display list from Movie JSON. Returns all elements recursively expanded,
+/// with fill colours and text content included where available.
 #[wasm_bindgen]
 pub fn get_display_list(movie_json: &str) -> Result<String, JsValue> {
     let movie: serde_json::Value = serde_json::from_str(movie_json)
@@ -152,90 +317,16 @@ pub fn get_display_list(movie_json: &str) -> Result<String, JsValue> {
     let tags = movie["tags"].as_array()
         .ok_or_else(|| JsValue::from_str("Movie has no tags array"))?;
 
-    // Stage size from header.frame_size (twips)
+    // Stage size
     let fs = &movie["header"]["frame_size"];
-    let stage_w = (fs["x_max"].as_i64().unwrap_or(25600)
-        - fs["x_min"].as_i64().unwrap_or(0)) as f64 / 20.0;
-    let stage_h = (fs["y_max"].as_i64().unwrap_or(14400)
-        - fs["y_min"].as_i64().unwrap_or(0)) as f64 / 20.0;
+    let stage_w = (fs["x_max"].as_i64().unwrap_or(25600) - fs["x_min"].as_i64().unwrap_or(0)) as f64 / 20.0;
+    let stage_h = (fs["y_max"].as_i64().unwrap_or(14400) - fs["y_min"].as_i64().unwrap_or(0)) as f64 / 20.0;
 
-    // Character map: id -> (bounds_twips, element_type)
-    let mut chars: HashMap<u64, (Option<(i64,i64,i64,i64)>, &'static str)> = HashMap::new();
+    let char_map = build_char_map(tags);
 
-    for tag in tags {
-        let id = match tag["id"].as_u64() { Some(id) => id, None => continue };
-        match tag["type"].as_str().unwrap_or("") {
-            "DefineShape" => {
-                chars.insert(id, (rect_twips(&tag["bounds"]), "shape"));
-            }
-            "DefineDynamicText" => {
-                chars.insert(id, (rect_twips(&tag["bounds"]), "text"));
-            }
-            "DefineSprite" => {
-                chars.insert(id, (None, "sprite"));
-            }
-            "DefineButton" | "DefineButton2" => {
-                chars.insert(id, (None, "button"));
-            }
-            _ => {}
-        }
-    }
-
-    // Walk the main timeline and collect PlaceObject tags (frame 0 only)
-    let mut items: Vec<DisplayItem> = Vec::new();
-
-    for tag in tags {
-        match tag["type"].as_str().unwrap_or("") {
-            "ShowFrame" => break,
-            "PlaceObject" => {}
-            _ => continue,
-        }
-
-        // Skip updates — these reposition existing characters, handled later
-        if tag["is_update"].as_bool().unwrap_or(false) {
-            continue;
-        }
-
-        let char_id = match tag["character_id"].as_u64() {
-            Some(id) => id,
-            None => continue,
-        };
-
-        let depth = tag["depth"].as_u64().unwrap_or(0) as u16;
-        let name = tag["name"].as_str().map(String::from);
-
-        // Matrix: translate in twips, scale as Sfixed16P16 (65536 = 1.0)
-        let mat = &tag["matrix"];
-        let tx = mat["translate_x"].as_i64().unwrap_or(0) as f64;
-        let ty = mat["translate_y"].as_i64().unwrap_or(0) as f64;
-        let sx = mat["scale_x"].as_i64().map(|v| v as f64 / 65536.0).unwrap_or(1.0);
-        let sy = mat["scale_y"].as_i64().map(|v| v as f64 / 65536.0).unwrap_or(1.0);
-
-        let (bounds, elem_type) = chars.get(&char_id)
-            .map(|(b, t)| (*b, *t))
-            .unwrap_or((None, "unknown"));
-
-        let (x, y, w, h) = match bounds {
-            Some((x_min, y_min, x_max, y_max)) => {
-                let x = (tx + x_min as f64 * sx) / 20.0;
-                let y = (ty + y_min as f64 * sy) / 20.0;
-                let w = ((x_max - x_min) as f64 * sx / 20.0).abs();
-                let h = ((y_max - y_min) as f64 * sy / 20.0).abs();
-                (x, y, w, h)
-            }
-            None => (tx / 20.0, ty / 20.0, 64.0, 32.0),
-        };
-
-        items.push(DisplayItem {
-            depth,
-            character_id: char_id as u16,
-            name,
-            element_type: elem_type.to_string(),
-            x, y, width: w, height: h,
-        });
-    }
-
-    items.sort_by_key(|i| i.depth);
+    let mut items = Vec::new();
+    let mut uid = 0u32;
+    collect_items(tags, &char_map, 0.0, 0.0, 1.0, 1.0, &mut uid, 0, &mut items);
 
     serde_json::to_string(&Stage { width: stage_w, height: stage_h, items })
         .map_err(|e| JsValue::from_str(&format!("Failed to serialise display list: {e}")))
