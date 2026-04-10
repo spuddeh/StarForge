@@ -18,6 +18,7 @@ target/
 
 # Local test files
 round-trip/
+console_logs/
 
 # Editor directories and files
 .vscode/*
