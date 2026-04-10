@@ -34,7 +34,7 @@ export default function EditorView({ doc, onReset }: Props) {
 
         <span className="ml-auto text-sf-ink/25 text-xs flex-shrink-0" style={mono}>
           {doc.displayList.width.toFixed(0)} &times; {doc.displayList.height.toFixed(0)} px
-          &nbsp;&mdash;&nbsp;
+          &nbsp;/&nbsp;
           {doc.displayList.items.length} elements
         </span>
       </div>
